@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(persistent_kv LANGUAGES CXX)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "This store requires Linux POSIX file APIs. Use Linux or WSL.")
+endif()
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
