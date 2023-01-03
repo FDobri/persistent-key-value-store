@@ -52,5 +52,24 @@ bool read_all(int fd, std::span<char> bytes, off_t offset) {
     }
     return true;
 }
+std::uint32_t crc(std::string_view head, std::string_view body) {
+    std::uint32_t c = 0xffffffff;
+    for (auto part : {head, body})
+        for (unsigned char byte : part) {
+            c ^= byte;
+            for (int bit = 0; bit < 8; ++bit)
+                c = (c >> 1) ^ (0xedb88320u & (0u - (c & 1u)));
+        }
+    return ~c;
+}
+void put_u32(std::string& s, std::uint32_t n) {
+    for (unsigned shift = 0; shift < 32; shift += 8) s.push_back(static_cast<char>(n >> shift));
+}
+std::uint32_t u32(std::string_view s, std::size_t offset) {
+    std::uint32_t n = 0;
+    for (unsigned i = 0; i < 4; ++i)
+        n |= std::uint32_t(static_cast<unsigned char>(s[offset + i])) << (i * 8);
+    return n;
+}
 }
 }
