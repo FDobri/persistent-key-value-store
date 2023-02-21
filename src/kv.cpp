@@ -92,4 +92,68 @@ std::string record(std::string_view key, std::optional<std::string_view> value) 
     return bytes;
 }
 }
+
+struct Store::State {
+    explicit State(const std::filesystem::path& path)
+        : directory(open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC), "open database directory"),
+          lock(openat(directory.fd, "LOCK", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600), "open lock") {
+        if (flock(lock.fd, LOCK_EX | LOCK_NB) < 0) fail("lock database");
+        File log(openat(directory.fd, "store.wal", O_RDWR | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+                        0600), "open WAL");
+        wal.swap(log);
+        sync(directory.fd, true);
+        recover();
+    }
+    File directory, lock, wal;
+    std::map<std::string, std::string, std::less<>> values;
+    bool poisoned{};
+
+    void check() const { if (poisoned) throw std::runtime_error("reopen the database after a write failure"); }
+    void recover() {
+        struct stat state{};
+        if (fstat(wal.fd, &state) < 0) fail("inspect WAL");
+        off_t offset = 0;
+        std::array<char, header> bytes{};
+        while (state.st_size - offset >= static_cast<off_t>(header)) {
+            if (!read_all(wal.fd, bytes, offset)) break;
+            const std::string_view head(bytes.data(), bytes.size());
+            const auto key_len = u32(head, 4), value_len = u32(head, 8);
+            if (u32(head, 0) != magic || key_len == 0 || key_len > limit ||
+                (value_len != tombstone && value_len > limit))
+                throw std::runtime_error("invalid WAL record header");
+            const auto size = key_len + (value_len == tombstone ? 0 : value_len);
+            if (state.st_size - offset - header < size) break;
+            std::string body(size, '\0');
+            if (!read_all(wal.fd, body, offset + header)) break;
+            if (crc(head.substr(0, 12), body) != u32(head, 12)) {
+                if (offset + static_cast<off_t>(header + size) == state.st_size) break;
+                throw std::runtime_error("checksum mismatch inside WAL");
+            }
+            auto key = body.substr(0, key_len);
+            if (value_len == tombstone) values.erase(key);
+            else values.insert_or_assign(std::move(key), body.substr(key_len));
+            offset += header + size;
+        }
+        if (offset != state.st_size) {
+            if (ftruncate(wal.fd, offset) < 0) fail("truncate incomplete WAL tail");
+            sync(wal.fd);
+        }
+    }
+    void append(std::string_view bytes) {
+        check();
+        try { write_all(wal.fd, bytes); sync(wal.fd); }
+        catch (...) { poisoned = true; throw; }
+    }
+};
+
+Store::Store(const std::filesystem::path& path) {
+    if (std::filesystem::create_directory(path)) {
+        auto parent = path.parent_path();
+        if (parent.empty()) parent = ".";
+        File parent_dir(open(parent.c_str(), O_DIRECTORY | O_RDONLY | O_CLOEXEC), "open parent directory");
+        sync(parent_dir.fd, true);
+    }
+    state_ = std::make_unique<State>(path);
+}
+Store::~Store() = default;
 }
