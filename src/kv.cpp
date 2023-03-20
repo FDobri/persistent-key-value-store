@@ -156,4 +156,25 @@ Store::Store(const std::filesystem::path& path) {
     state_ = std::make_unique<State>(path);
 }
 Store::~Store() = default;
+std::optional<std::string> Store::get(std::string_view key) const {
+    state_->check();
+    auto it = state_->values.find(key);
+    if (it == state_->values.end()) return std::nullopt;
+    return it->second;
+}
+void Store::set(std::string_view key, std::string_view value) {
+    auto bytes = record(key, value);
+    decltype(state_->values) staging;
+    staging.emplace(key, value);
+    auto node = staging.extract(staging.begin());
+    state_->append(bytes);
+    auto inserted = state_->values.insert(std::move(node));
+    if (!inserted.inserted) inserted.position->second.swap(inserted.node.mapped());
+}
+void Store::erase(std::string_view key) {
+    auto bytes = record(key, std::nullopt);
+    auto it = state_->values.find(key);
+    state_->append(bytes);
+    if (it != state_->values.end()) state_->values.erase(it);
+}
 }
