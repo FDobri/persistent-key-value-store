@@ -177,4 +177,19 @@ void Store::erase(std::string_view key) {
     state_->append(bytes);
     if (it != state_->values.end()) state_->values.erase(it);
 }
+void Store::compact() {
+    state_->check();
+    auto& s = *state_;
+    if (unlinkat(s.directory.fd, "store.tmp", 0) < 0 && errno != ENOENT)
+        fail("remove previous compaction output");
+    File compacted(openat(s.directory.fd, "store.tmp",
+                          O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_CLOEXEC, 0600), "create compaction output");
+    for (const auto& [key, value] : s.values) write_all(compacted.fd, record(key, value));
+    sync(compacted.fd);
+    if (renameat(s.directory.fd, "store.tmp", s.directory.fd, "store.wal") < 0)
+        fail("replace WAL");
+    s.wal.swap(compacted);
+    try { sync(s.directory.fd, true); }
+    catch (...) { s.poisoned = true; throw; }
+}
 }
