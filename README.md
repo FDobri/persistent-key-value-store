@@ -1,3 +1,3 @@
 # Persistent Key-Value Store
 
-A Linux database library and command-line client.
+An embedded Linux database with a sorted in-memory index, checksummed write-ahead log and atomic compaction.
