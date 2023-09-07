@@ -15,3 +15,5 @@ ctest --test-dir build --output-on-failure
 Requires Linux, CMake 3.24+, a C++20 toolchain and Python 3 for the crash test. Run on the Linux filesystem when using WSL.
 
 ## Design
+
+The store holds an exclusive process lock and expects one calling thread per handle. Each update appends a length-prefixed, CRC32-protected record and calls `fdatasync` before updating the index.
