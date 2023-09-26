@@ -16,4 +16,4 @@ Requires Linux, CMake 3.24+, a C++20 toolchain and Python 3 for the crash test. 
 
 ## Design
 
-The store holds an exclusive process lock and expects one calling thread per handle. Each update appends a length-prefixed, CRC32-protected record and calls `fdatasync` before updating the index.
+The store holds an exclusive process lock and expects one calling thread per handle. Each update appends a length-prefixed, CRC32-protected record and calls `fdatasync` before updating the index. Recovery replays complete frames, truncates an incomplete final frame and checks final-frame CRC before replay. Invalid headers and checksum failures before the final record surface as errors. Compaction writes a new log with the live values, syncs it before rename and syncs the containing directory before returning.
